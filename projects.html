@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Projects — Tian Zeyu</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <nav class="navbar">
+    <div class="container nav-inner">
+      <a href="index.html" class="brand">Tian<span> Zeyu</span></a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="resume.html">Resume</a></li>
+        <li><a href="projects.html" class="active">Projects</a></li>
+        <li><a href="contact.html">Contact Me</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <header class="page-header">
+    <div class="container">
+      <h1>To-Do List</h1>
+      <p>Pick a date, jot down a task, and check things off as you go.</p>
+    </div>
+  </header>
+
+  <main class="container" style="padding-bottom: 60px;">
+    <section class="todo-app">
+      <h2 class="todo-title">📝 My Tasks</h2>
+      <p class="todo-sub">Choose a date on the calendar, type your task, and press Add.</p>
+
+      <form class="todo-form" id="todoForm">
+        <label class="todo-field" for="todoDate">
+          <span>Date</span>
+          <input type="date" id="todoDate" required>
+        </label>
+        <div class="todo-field">
+          <span>Priority</span>
+          <div class="todo-priority-options" role="group" aria-label="Priority">
+            <label class="todo-priority-btn">
+              <input type="radio" name="priority" value="low">
+              <span>🟢 Low</span>
+            </label>
+            <label class="todo-priority-btn">
+              <input type="radio" name="priority" value="medium" checked>
+              <span>🟡 Medium</span>
+            </label>
+            <label class="todo-priority-btn">
+              <input type="radio" name="priority" value="high">
+              <span>🔴 High</span>
+            </label>
+          </div>
+        </div>
+        <div class="todo-input-row">
+          <input type="text" id="todoText" placeholder="What do you need to do?" required>
+          <button type="submit" class="btn todo-add">Add</button>
+        </div>
+      </form>
+
+      <p class="todo-counter" id="todoCounter" hidden>0 of 0 tasks completed</p>
+      <ul class="todo-list" id="todoList"></ul>
+      <p class="todo-empty" id="todoEmpty">No tasks yet. Add one above! ☝️</p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="fun-fact">
+        <strong>Get in touch:</strong> 📧 <a href="mailto:Zeyu.Tian26@student.xjtlu.edu.cn">Zeyu.Tian26@student.xjtlu.edu.cn</a><br>
+        <strong>Fun fact:</strong> I enjoy telling corny jokes. 🌽
+      </div>
+      <p class="footer-copy">© 2026 Tian Zeyu · Made with warm tea and care</p>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const toggle = document.getElementById('navToggle');
+    const links = document.getElementById('navLinks');
+    toggle.addEventListener('click', () => links.classList.toggle('open'));
+    links.querySelectorAll('a').forEach(a => a.addEventListener('click', () => links.classList.remove('open')));
+
+    /* ===== To-Do App (Supabase) ===== */
+    const SUPABASE_URL = 'https://zskcsdcxqzmhftpvsqqi.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_tZiZ2uTulsQ85DSCriMHpg_iFBlabbh';
+    const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const todoForm = document.getElementById('todoForm');
+    const todoDate = document.getElementById('todoDate');
+    const todoText = document.getElementById('todoText');
+    const todoList = document.getElementById('todoList');
+    const todoEmpty = document.getElementById('todoEmpty');
+    const todoCounter = document.getElementById('todoCounter');
+
+    let todos = [];
+
+    const PRIORITY_MAP = {
+      low:    { emoji: '🟢', label: 'Low',    cls: 'prio-low' },
+      medium: { emoji: '🟡', label: 'Medium', cls: 'prio-medium' },
+      high:   { emoji: '🔴', label: 'High',   cls: 'prio-high' }
+    };
+
+    const today = new Date();
+    todoDate.value = today.toISOString().split('T')[0];
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    function formatDate(dateStr) {
+      try {
+        const d = new Date(dateStr + 'T00:00:00');
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      } catch (e) {
+        return dateStr;
+      }
+    }
+
+    function todoById(id) {
+      return todos.find(t => String(t.id) === String(id));
+    }
+
+    // Show an inline error in the empty-state area
+    function showError(msg) {
+      todoEmpty.textContent = '⚠️ ' + msg;
+      todoEmpty.style.display = 'block';
+      todoCounter.hidden = true;
+    }
+
+    // Read all todos from Supabase, ordered by time
+    async function loadTodos() {
+      todoEmpty.textContent = 'Loading tasks…';
+      todoEmpty.style.display = 'block';
+      todoCounter.hidden = true;
+      const { data, error } = await supa
+        .from('todos')
+        .select('*')
+        .order('created_at', { ascending: true });
+      if (error) {
+        showError('Could not load tasks: ' + error.message);
+        return;
+      }
+      todos = data || [];
+      render();
+    }
+
+    function render() {
+      todoList.innerHTML = '';
+      const total = todos.length;
+      const done = todos.filter(t => t.is_complete).length;
+      if (total === 0) {
+        todoEmpty.textContent = 'No tasks yet. Add one above! ☝️';
+        todoEmpty.style.display = 'block';
+        todoCounter.hidden = true;
+        return;
+      }
+      todoEmpty.style.display = 'none';
+      todoCounter.hidden = false;
+      todoCounter.textContent = `${done} of ${total} task${total === 1 ? '' : 's'} completed`;
+      todos.forEach(todo => {
+        const prio = PRIORITY_MAP[todo.priority] || PRIORITY_MAP.medium;
+        const li = document.createElement('li');
+        li.className = 'todo-item' + (todo.is_complete ? ' done' : '');
+        li.innerHTML = `
+          <label class="todo-check">
+            <input type="checkbox" data-id="${escapeHtml(todo.id)}" ${todo.is_complete ? 'checked' : ''}>
+            <span class="todo-checkmark"></span>
+          </label>
+          <div class="todo-content">
+            <div class="todo-text">${escapeHtml(todo.task)}</div>
+            <div class="todo-meta">
+              <span class="todo-prio-badge ${prio.cls}">${prio.emoji} ${prio.label}</span>
+              <span class="todo-date-badge">📅 ${formatDate(todo.date)}</span>
+            </div>
+          </div>
+          <button class="todo-delete" data-id="${escapeHtml(todo.id)}" aria-label="Delete task">✕</button>
+        `;
+        todoList.appendChild(li);
+      });
+    }
+
+    // Add a task → insert into Supabase
+    todoForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const text = todoText.value.trim();
+      if (!text) return;
+      const priority = document.querySelector('input[name=priority]:checked').value;
+      const payload = { task: text, date: todoDate.value, is_complete: false };
+      const { data, error } = await supa.from('todos').insert(payload).select();
+      if (error) {
+        showError('Could not save task: ' + error.message);
+        return;
+      }
+      if (data && data[0]) todos.push(data[0]);
+      todoText.value = '';
+      todoText.focus();
+      render();
+    });
+
+    todoList.addEventListener('click', async e => {
+      // Inline edit: click on the task text
+      const textEl = e.target.closest('.todo-text');
+      if (textEl) {
+        const item = textEl.closest('.todo-item');
+        const id = item.querySelector('.todo-delete').dataset.id;
+        const todo = todoById(id);
+        if (todo) startEdit(textEl, todo);
+        return;
+      }
+      // Delete button
+      const delBtn = e.target.closest('.todo-delete');
+      if (delBtn) {
+        const id = delBtn.dataset.id;
+        const { error } = await supa.from('todos').delete().eq('id', id);
+        if (error) {
+          showError('Could not delete: ' + error.message);
+          return;
+        }
+        todos = todos.filter(t => String(t.id) !== String(id));
+        render();
+        return;
+      }
+      // Checkbox (toggle done)
+      if (e.target.matches('input[type=checkbox]')) {
+        const id = e.target.dataset.id;
+        const newDone = e.target.checked;
+        const { error } = await supa.from('todos').update({ is_complete: newDone }).eq('id', id);
+        if (error) {
+          showError('Could not update: ' + error.message);
+          return;
+        }
+        const todo = todoById(id);
+        if (todo) todo.is_complete = newDone;
+        render();
+      }
+    });
+
+    function startEdit(textEl, todo) {
+      const original = todo.task;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'todo-text-input';
+      input.value = original;
+      input.maxLength = 200;
+      input.setAttribute('aria-label', 'Edit task');
+      textEl.replaceWith(input);
+      input.focus();
+      input.select();
+
+      let finished = false;
+      async function finish(commit) {
+        if (finished) return;
+        finished = true;
+        if (commit) {
+          const newText = input.value.trim();
+          if (newText && newText !== original) {
+            const { error } = await supa.from('todos').update({ task: newText }).eq('id', todo.id);
+            if (error) {
+              showError('Could not update: ' + error.message);
+              render();
+              return;
+            }
+            todo.task = newText;
+          }
+        }
+        render();
+      }
+
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          finish(true);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          finish(false);
+        }
+      });
+      input.addEventListener('blur', () => finish(false));
+    }
+
+    // Initial load from Supabase
+    loadTodos();
+  </script>
+</body>
+</html>
